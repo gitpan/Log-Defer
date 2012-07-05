@@ -2,7 +2,7 @@ package Log::Defer;
 
 use strict;
 
-our $VERSION = '0.11';
+our $VERSION = '0.12';
 
 use Time::HiRes;
 use Carp qw/croak/;
@@ -133,8 +133,13 @@ Log::Defer - Deferred logs and timers
     use JSON::XS; ## or whatever
 
     my $logger = Log::Defer->new(\&my_logger_function);
+
     $logger->info("hello world");
-    undef $logger; # write out log message
+
+    my $timer = $logger->timer('some timer');
+    undef $timer; ## stops timer
+
+    undef $logger; ## write out log message
 
     sub my_logger_function {
       my $msg = shift;
@@ -228,13 +233,26 @@ This is useful for recording info related to a whole transaction like say a conn
 
 =head1 TIMERS
 
-Timer objects can be created by calling the C<timer> method on the logger object. This method should be passed a description of what you are timing.
+When the logger object is first created, the current time is recorded and is stored in the C<start> element of the log hash. However, you can record timing data of sub-portions of your transaction with timer objects.
 
-The timer starts as soon as the timer object is created and only stops once the last reference to the timer is destroyed or goes out of scope, or if the logger object itself is destroyed/goes out of scope.
+Timer objects are created by calling the C<timer> method on the logger object. This method should be passed a description of what you are timing.
 
-When the logger object is first created, the current time is recorded and is stored in the C<start> element of the log hash. C<start> is a L<Time::HiRes> absolute timestamp. All other times are relative offsets from this C<start> time. Everything is in seconds.
+The timer starts as soon as the timer object is created and stops once the last reference to the timer is destroyed or goes out of scope, or if the logger object itself is destroyed/goes out of scope.
 
-Here is a fairly complicated example that includes concurrent timers:
+C<start> is a L<Time::HiRes> absolute timestamp. All other times are relative offsets from this C<start> time. Everything is in seconds.
+
+With the L<Log::Defer::Viz> module you can take your recorded timer data and render log messages that look like this:
+
+     download file |===============================================|
+      cache lookup |==============|
+      update cache                |=========================================|
+         DB lookup                |======================|
+        sent reply                                                 X
+    ________________________________________________________________________________
+    times in ms    0.2            32.4                             100.7
+                                                         80.7              119.2
+
+Here is a fairly complicated example of using concurrent timers:
 
     sub handle_request {
       my $request = shift;
@@ -312,21 +330,6 @@ What follows is a prettified example of a JSON-encoded log message. Normally all
           ]
        }
     }
-
-
-
-
-=head1 FUTURE WORK
-
-We plan do some cool stuff with structured logs. Here's a mock-up of a timer rendering idea:
-
-    parsing request       |======|
-    fetching results             |==========|
-    fetching stage 2                        |==========================|
-    update cache                            |==========|
-                          0                 0.05073                    0.129351
-                                 0.0012                 0.084622
-
 
 
 
