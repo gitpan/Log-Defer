@@ -37,10 +37,11 @@ SYNOPSIS
         }
 
 DESCRIPTION
-    I believe a lot of log processing is done too early. This module helps
-    you to defer log processing in two ways:
+    I believe a lot of log processing is done too early.
 
-    Defer recording of log messages until a "transaction" has completed
+    This module helps you defer log processing in two ways:
+
+    Defer recording of log messages until some "transaction" has completed
         Typically this transaction is something like an HTTP request or a
         cron job. Generally log messages are easier to read if they are
         recorded atomically and are not intermingled with log messages
@@ -51,8 +52,8 @@ DESCRIPTION
         after the message has been written. If you aren't sure what
         information you'll want to display, or you expect to display logs in
         multiple different formats, it makes sense to store your logs in a
-        highly structured format so they can be processed as late as
-        possible.
+        highly structured format so they can be reliably parsed and then
+        processed later.
 
     This module doesn't actually write out logs! To use this module for
     normal logging purposes you also need a logging library (some of them
@@ -60,14 +61,21 @@ DESCRIPTION
 
 USAGE
     The simplest use case is outlined in the SYNOPSIS. You create a new
-    Log::Defer object and pass in a code ref callback. This callbac will be
+    Log::Defer object and pass in a code ref callback. This callback will be
     called once the Log::Defer object is destroyed or once all references to
-    the object go out of scope.
+    the object go out of scope:
 
-    With Log::Defer, if a transaction has several possible code paths it can
-    take, there is no need to manually ensure that every possible path ends
-    up calling your logging routine at the end. The log writing will be
-    deferred until the logger object is destroyed or goes out of scope.
+        sub handle_request {
+          my $logger = Log::Defer->new(\&logging_function);
+          ...
+          $logger->info("blah blah");
+          ...
+        } ## <- $logger goes out of scope here so log is written now
+
+    There is no need to manually ensure that every possible code path ends
+    up calling your logging routine at the end because perl's reference
+    counting system does that for you (unless you call "POSIX::_exit", don't
+    do that).
 
     In an asynchronous application where multiple asynchronous tasks are
     kicked off concurrently, each task can keep a reference to the logger
@@ -91,9 +99,10 @@ STRUCTURED LOGS
     messages on you, some tools like the visualisation tool only support
     JSON at this time.
 
-    FIXME: QQQ Normally all unnecessary white-space would be removed and it
-    would be stored on a single line so that ad-hoc command-line "grep"ing
-    still works.
+    The currently recommended format to store logs in is newline-separated,
+    minified JSON. The newline is useful because it allows simple
+    whole-request greping of the logs. With structured logs, much more
+    accurate and flexible greping is possible, as is shown in log-defer-viz.
 
 LOG MESSAGES
     Log::Defer objects provide a very basic "log level" system. In order of
@@ -256,9 +265,9 @@ EXAMPLE LOG MESSAGE
            }
         }
 
-Visualisation
-    See the Log::Defer::Viz module for a command line utility that renders
-    Log::Defer logs. Timers are shown something like this:
+VISUALISATION
+    See the log-defer-viz command-line script that renders Log::Defer logs.
+    Timers are shown something like this:
 
          download file |===============================================|
           cache lookup |==============|
@@ -269,7 +278,37 @@ Visualisation
         times in ms    0.2            32.4                             100.7
                                                              80.7              119.2
 
+MERGING
+    Sometimes it's useful to create a "child logger" Log::Defer object which
+    is later merged into your main logger. This can be accomplished with the
+    "merge" method:
+
+        my $logger = Log::Defer->new(sub {
+                                       my $merged_msg = shift;
+                                       ## ...
+                                     });
+
+        ## ...
+
+        {
+          my $child_logger = Log::Defer->new(sub {
+                                               my $msg = shift;
+                                               $logger->merge($msg);
+                                             });
+        }
+
+        ## ...
+
+    This technique is used in AnyEvent::Task so that worker processes can
+    log messages using Log::Defer and these are then merged into a client
+    process's existing Log::Defer object.
+
 SEE ALSO
+    <Log::Defer github repo>
+
+    One way to visualize logs created by this module is with the
+    command-line script log-defer-viz
+
     As mentioned above, this module doesn't actually log messages to
     disk/syslog/anything so you still must use some other module to record
     your log messages. There are many libraries on CPAN that can do this and
