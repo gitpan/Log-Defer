@@ -4,10 +4,19 @@ NAME
 SYNOPSIS
         use Log::Defer;
         use JSON::XS; ## or whatever
+        use Try::Tiny;
 
         sub my_logger_function {
           my $msg = shift;
-          print JSON::XS->new->pretty(1)->encode($msg);
+      
+          my $encoded_msg = try {
+            JSON::XS->new->pretty(1)->encode($msg)
+          }
+          catch {
+            "Failed to JSON encode msg : $_"
+          };
+
+          print $encoded_msg; ## usually you'd append this to a file
         }
 
         my $logger = Log::Defer->new({
@@ -39,7 +48,7 @@ SYNOPSIS
 DESCRIPTION
     I believe a lot of log processing is done too early.
 
-    This module helps you defer log processing in two ways:
+    This module lets you defer log processing in two ways:
 
     Defer recording of log messages until some "transaction" has completed
         Typically this transaction is something like an HTTP request or a
@@ -51,9 +60,9 @@ DESCRIPTION
         Sometimes you don't know how logs should be rendered until long
         after the message has been written. If you aren't sure what
         information you'll want to display, or you expect to display logs in
-        multiple different formats, it makes sense to store your logs in a
-        highly structured format so they can be reliably parsed and then
-        processed later.
+        different formats, it makes sense to store your logs in a highly
+        structured format so they can be reliably parsed and then processed
+        later.
 
     This module doesn't actually write out logs! To use this module for
     normal logging purposes you also need a logging library (some of them
@@ -74,8 +83,8 @@ USAGE
 
     There is no need to manually ensure that every possible code path ends
     up calling your logging routine at the end because perl's reference
-    counting system does that for you (unless you call "POSIX::_exit", don't
-    do that).
+    counting system does that for you (unless you call "POSIX::_exit" so
+    don't do that).
 
     In an asynchronous application where multiple asynchronous tasks are
     kicked off concurrently, each task can keep a reference to the logger
@@ -87,27 +96,28 @@ USAGE
 
 STRUCTURED LOGS
     Free-form line-based log protocols are probably the most common log
-    formats by far. The formats are usually just happenstance -- whatever
-    happened to be convenient for the programmer.
+    formats by far. The "format" is usually just coincidental -- whatever
+    happened to be convenient for the programmer to record.
 
-    Unfortunately, doing analysis on ad-hoc unstructured multi-line formats
-    requires a lot of time-consuming parsing work. As well as being a perl
-    module, Log::Defer is also a specification for a structured logging
-    format.
+    Unfortunately, doing analysis on ad-hoc unstructured logs requires lots
+    of menial coding work writing parsers. Even more annoying is that these
+    parsers are often regexp-based and brittle.
 
-    Although this module doesn't impose any external encoding for log
-    messages on you, some tools like the visualisation tool only support
-    JSON at this time.
+    As well as being a perl module, Log::Defer is also a specification for a
+    structured logging format. Although it doesn't impose any external
+    encoding for log messages on you, some tools like the visualisation tool
+    log-defer-viz only support JSON at this time.
 
     The currently recommended format to store logs in is newline-separated,
-    minified JSON. The newline is useful because it allows simple
-    whole-request greping of the logs. With structured logs, much more
-    accurate and flexible greping is possible, as is shown in log-defer-viz.
+    minified JSON. The newline+minification is useful because it allows
+    simple whole-request greping of the logs. With structured logs, much
+    more accurate and flexible greping is also possible, as described in
+    log-defer-viz.
 
 LOG MESSAGES
     Log::Defer objects provide a very basic "log level" system. In order of
     increasing verbosity, here are the normal logging methods and their
-    numeric log level:
+    numeric log levels:
 
         $logger->error("...");  # 10
         $logger->warn("...");   # 20
@@ -122,25 +132,28 @@ LOG MESSAGES
     messages with a higher log level will not be included in the final log
     message. Otherwise, all log messages are included.
 
-    Even if you include noisy debug logs you can filter them out with the
+    Even if you record noisy debug logs you can filter them out with a
     visualisation tool at display time. The "verbosity" argument is only
     useful for reducing the size of log messages or eliminating unnecessary
     processing overhead (see the no-overhead debug logs section below).
 
     Note that you can pass in multiple items to a log message and they don't
-    even need to be strings:
+    even need to be strings (but make sure you are catching any exceptions
+    thrown by your encoder as done in the synopsis):
 
-        $logger->warn("something weird happened: $@", { username => $username });
+        $logger->error("peer timeout", { waited => $timeout });
 
     In the deferred logging callback, the log messages are recorded in the
-    "logs" element of the $msg hash. It is an array ref and here would be
-    the element pushed onto "logs" by the "warn" method call above:
+    "logs" element of the $msg hash. It is an array ref and here is the
+    element that would be pushed onto "logs" by the "error" method call
+    above:
 
-        [ 0.201223, 20, "something weird happened: peer timeout", { username => "jimmy" } ]
+        [ 30.201223, 10, "peer timeout", { waited => 30 } ]
 
-    The first element is a timestamp of how long the "warn" method was
+    The first element is a timestamp of how long the "error" method was
     called after the "start" in seconds (see TIMERS below). The second
-    element is the verbosity level of this message.
+    element is the verbosity level of this message. The remaining elements
+    are passed in untouched from the "error" method.
 
 NO-OVERHEAD DEBUG LOGS
     If you would like to compute complex messages in debug mode but don't
@@ -158,15 +171,16 @@ DATA
 
         $log->data->{ip} = $ENV{REMOTE_ADDR};
 
-    This is a useful place to recording info that needs to be extracted
-    since you don't need to crawl through log message entries. Anything you
-    put in the "data" hash reference will be passed along untouched to your
-    defered callback.
+    This is a useful place to record info that needs to be extracted
+    programatically. Anything you put in the "data" hash reference will be
+    passed along untouched to your defered callback (but again, make sure
+    you are catching encoder exceptions as shown in the synopsis).
 
 TIMERS
     When the logger object is first created, the current time is recorded as
     a Time::HiRes absolute timestamp and is stored in the "start" element of
-    the log hash. All other times are relative offsets from "start".
+    the log hash. "start" is a Time::HiRes absolute timestamp. All other
+    times are relative offsets from "start" in seconds.
 
     When the logger object is destroyed, the time elapsed since "start" is
     stored in "end".
@@ -182,48 +196,12 @@ TIMERS
     The timer starts as soon as the timer object is created and stops once
     the last reference to the timer is destroyed or goes out of scope. If
     the logger object itself is destroyed or goes out of scope then all
-    outstanding timers are terminated at that point.
+    outstanding timers are terminated at that point:
 
-    "start" is a Time::HiRes absolute timestamp. All other times are
-    relative offsets from this "start" time. Everything is in seconds.
-
-    Here is a fairly complicated example showing how to use concurrent
-    timers:
-
-        sub handle_request {
-          my $request = shift;
-          my $logger = Log::Defer->new(\&my_logging_function);
-
-          my $headers = do {
-            my $parse_timer = $logger->timer('parsing request');
-            parse_request($request);
-          };
-
-          my $fetch_timer = $logger->timer('fetching results');
-          async_fetch_results($headers, sub {
-
-            ## stop first timer by undefing ref, then start new timer
-            undef $fetch_timer; $fetch_timer = $logger->timer('fetching stage 2');
-
-            async_fetch_stage_2($headers, sub {
-
-              $logger; ## keep reference alive
-              undef $fetch_timer;
-              send_response();
-
-            });
-
-            my $update_cache_timer = $logger->timer('update cache');
-
-            async_update_cach(sub {
-
-              $logger; ## keep reference alive
-              undef $update_cache_timer;
-
-            });
-
-          });
-        }
+        {
+            my $timer = $log_defer_object->timer('running some_code');
+            some_code();
+        } ## <- timer is stopped here because $timer goes out of scope
 
 EXAMPLE LOG MESSAGE
     Each structured log message will be passed into the callback provided to
@@ -311,16 +289,16 @@ SEE ALSO
     One way to visualize logs created by this module is with the
     command-line script log-defer-viz
 
-    As mentioned above, this module doesn't actually log messages to
-    disk/syslog/anything so you still must use some other module to record
-    your log messages. There are many libraries on CPAN that can do this and
-    there should be at least one that fits your requirements. Some examples
-    are: Sys::Syslog, Log::Dispatch, Log::Handler, Log::Log4perl, Log::Fast,
-    AnyEvent::Log.
+    As mentioned above, this module doesn't itself log messages to disk so
+    you still must use some other module to record your log messages. There
+    are many libraries on CPAN that can do this and there should be at least
+    one that fits your requirements. Some examples are: Sys::Syslog,
+    Log::Dispatch, Log::Handler, Log::Log4perl, Log::Fast, AnyEvent::Log.
 
     Additionally, this module doesn't provide any official serialization
-    format. There are many choices for this, including JSON::XS, Sereal,
-    Storable, and Data::MessagePack.
+    format. There are many choices for this, including JSON::XS (JSON is the
+    only format currently supported by log-defer-viz), Sereal, Storable, and
+    Data::MessagePack.
 
     Currently the timestamp generation system is hard-coded to
     "Time::HiRes::time". You should be aware of some caveats related to
