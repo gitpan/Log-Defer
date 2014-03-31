@@ -42,6 +42,13 @@ SYNOPSIS
                  30,
                  "hello world"
               ]
+           ],
+           "timers" : [
+              [
+                 "some timer",
+                 0.000210,
+                 0.000233
+              ]
            ]
         }
 
@@ -59,20 +66,20 @@ DESCRIPTION
     Defer rendering of log messages
         Sometimes you don't know how logs should be rendered until long
         after the message has been written. If you aren't sure what
-        information you'll want to display, or you expect to display logs in
-        different formats, it makes sense to store your logs in a highly
-        structured format so they can be reliably parsed and then processed
-        later.
+        information you'll want to display, or you expect to display the
+        same logs in multiple formats, it makes sense to store your logs in
+        a highly structured format so they can be reliably parsed and
+        processed later.
 
     This module doesn't actually write out logs! To use this module for
     normal logging purposes you also need a logging library (some of them
     are mentioned in "SEE ALSO").
 
 USAGE
-    The simplest use case is outlined in the SYNOPSIS. You create a new
-    Log::Defer object and pass in a code ref callback. This callback will be
-    called once the Log::Defer object is destroyed or once all references to
-    the object go out of scope:
+    To use Log::Defer, you create a logger object and pass in a code ref
+    callback (either bare or as "cb" in an argument hash-ref). This callback
+    will be called once the Log::Defer object is destroyed or once all
+    references to the object go out of scope:
 
         sub handle_request {
           my $logger = Log::Defer->new(\&logging_function);
@@ -138,8 +145,9 @@ LOG MESSAGES
     processing overhead (see the no-overhead debug logs section below).
 
     Note that you can pass in multiple items to a log message and they don't
-    even need to be strings (but make sure you are catching any exceptions
-    thrown by your encoder as done in the synopsis):
+    even need to be strings (but make sure you are handling any
+    serialisation exceptions thrown by your encoder as done in the
+    synopsis):
 
         $logger->error("peer timeout", { waited => $timeout });
 
@@ -162,7 +170,7 @@ NO-OVERHEAD DEBUG LOGS
 
         $logger->debug(sub { "Connection: " . dump_connection_info($conn) });
 
-    The sub won't be invoked unless the logger object is instantiated with
+    The sub will only be invoked if the logger object is instantiated with
     "verbosity" of 40 or higher (or you omit "verbosity" altogether).
 
 DATA
@@ -185,7 +193,7 @@ TIMERS
     When the logger object is destroyed, the time elapsed since "start" is
     stored in "end".
 
-    In addition to start and duration of the entire transaction, you can
+    In addition to the start and duration of the entire transaction, you can
     also record timing data of sub-portions of your transaction by using
     timer objects.
 
@@ -194,14 +202,15 @@ TIMERS
     timing.
 
     The timer starts as soon as the timer object is created and stops once
-    the last reference to the timer is destroyed or goes out of scope. If
-    the logger object itself is destroyed or goes out of scope then all
-    outstanding timers are terminated at that point:
+    the last reference to the timer is destroyed or goes out of scope:
 
         {
-            my $timer = $log_defer_object->timer('running some_code');
+            my $timer = $log_defer_object->timer('running some_code()');
             some_code();
         } ## <- timer is stopped here because $timer goes out of scope
+
+    If the logger object itself is destroyed or goes out of scope then all
+    outstanding timers are terminated at that point.
 
 EXAMPLE LOG MESSAGE
     Each structured log message will be passed into the callback provided to
@@ -251,8 +260,8 @@ VISUALISATION
 
          download file |===============================================|
           cache lookup |==============|
-          update cache                |=========================================|
              DB lookup                |======================|
+          update cache                                       |==================|
             sent reply                                                 X
         ________________________________________________________________________________
         times in ms    0.2            32.4                             100.7
@@ -281,13 +290,16 @@ MERGING
 
     This technique is used in AnyEvent::Task so that worker processes can
     log messages using Log::Defer and these are then merged into a client
-    process's existing Log::Defer object.
+    process's existing logger object.
 
 SEE ALSO
-    <Log::Defer github repo>
+    Log::Defer github repo <https://github.com/hoytech/Log-Defer>
 
     One way to visualize logs created by this module is with the
     command-line script log-defer-viz
+
+    Michael Pucyk has created a Python implementation for the Log::Defer
+    format: LogDefer Python module <https://github.com/mikep/LogDefer>
 
     As mentioned above, this module doesn't itself log messages to disk so
     you still must use some other module to record your log messages. There
@@ -308,7 +320,7 @@ AUTHOR
     Doug Hoyte, "<doug@hcsw.org>"
 
 COPYRIGHT & LICENSE
-    Copyright 2012-2013 Doug Hoyte.
+    Copyright 2012-2014 Doug Hoyte.
 
     This module is licensed under the same terms as perl itself.
 

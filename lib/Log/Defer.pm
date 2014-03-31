@@ -2,7 +2,7 @@ package Log::Defer;
 
 use strict;
 
-our $VERSION = '0.310';
+our $VERSION = '0.311';
 
 use Time::HiRes;
 use Carp qw/croak/;
@@ -184,11 +184,11 @@ sub format_time {
 
 __END__
 
+=encoding utf-8
 
 =head1 NAME
 
 Log::Defer - Deferred logs and timers
-
 
 =head1 SYNOPSIS
 
@@ -232,6 +232,13 @@ Prints:
              30,
              "hello world"
           ]
+       ],
+       "timers" : [
+          [
+             "some timer",
+             0.000210,
+             0.000233
+          ]
        ]
     }
 
@@ -251,7 +258,7 @@ Typically this transaction is something like an HTTP request or a cron job. Gene
 
 =item Defer rendering of log messages
 
-Sometimes you don't know how logs should be rendered until long after the message has been written. If you aren't sure what information you'll want to display, or you expect to display logs in different formats, it makes sense to store your logs in a highly structured format so they can be reliably parsed and then processed later.
+Sometimes you don't know how logs should be rendered until long after the message has been written. If you aren't sure what information you'll want to display, or you expect to display the same logs in multiple formats, it makes sense to store your logs in a highly structured format so they can be reliably parsed and processed later.
 
 =back
 
@@ -264,7 +271,7 @@ B<This module doesn't actually write out logs!> To use this module for normal lo
 
 =head1 USAGE
 
-The simplest use case is outlined in the L<SYNOPSIS>. You create a new Log::Defer object and pass in a code ref callback. This callback will be called once the Log::Defer object is destroyed or once all references to the object go out of scope:
+To use Log::Defer, you create a logger object and pass in a code ref callback (either bare or as C<cb> in an argument hash-ref). This callback will be called once the Log::Defer object is destroyed or once all references to the object go out of scope:
 
     sub handle_request {
       my $logger = Log::Defer->new(\&logging_function);
@@ -311,7 +318,7 @@ If you pass in a C<verbosity> argument to the Log::Defer constructor, messages w
 
 Even if you record noisy debug logs you can filter them out with a visualisation tool at display time. The C<verbosity> argument is only useful for reducing the size of log messages or eliminating unnecessary processing overhead (see the no-overhead debug logs section below).
 
-Note that you can pass in multiple items to a log message and they don't even need to be strings (but make sure you are catching any exceptions thrown by your encoder as done in the synopsis):
+Note that you can pass in multiple items to a log message and they don't even need to be strings (but make sure you are handling any serialisation exceptions thrown by your encoder as done in the synopsis):
 
     $logger->error("peer timeout", { waited => $timeout });
 
@@ -329,7 +336,7 @@ If you would like to compute complex messages in debug mode but don't want to bu
 
     $logger->debug(sub { "Connection: " . dump_connection_info($conn) });
 
-The sub won't be invoked unless the logger object is instantiated with C<verbosity> of 40 or higher (or you omit C<verbosity> altogether).
+The sub will only be invoked if the logger object is instantiated with C<verbosity> of 40 or higher (or you omit C<verbosity> altogether).
 
 
 
@@ -349,17 +356,18 @@ When the logger object is first created, the current time is recorded as a L<Tim
 
 When the logger object is destroyed, the time elapsed since C<start> is stored in C<end>.
 
-In addition to start and duration of the entire transaction, you can also record timing data of sub-portions of your transaction by using timer objects.
+In addition to the start and duration of the entire transaction, you can also record timing data of sub-portions of your transaction by using timer objects.
 
 Timer objects are created by calling the C<timer> method on the logger object. This method should be passed a description of what you are timing.
 
-The timer starts as soon as the timer object is created and stops once the last reference to the timer is destroyed or goes out of scope. If the logger object itself is destroyed or goes out of scope then all outstanding timers are terminated at that point:
+The timer starts as soon as the timer object is created and stops once the last reference to the timer is destroyed or goes out of scope:
 
     {
-        my $timer = $log_defer_object->timer('running some_code');
+        my $timer = $log_defer_object->timer('running some_code()');
         some_code();
     } ## <- timer is stopped here because $timer goes out of scope
 
+If the logger object itself is destroyed or goes out of scope then all outstanding timers are terminated at that point.
 
 
 =head1 EXAMPLE LOG MESSAGE
@@ -411,8 +419,8 @@ See the L<log-defer-viz> command-line script that renders Log::Defer logs. Timer
 
      download file |===============================================|
       cache lookup |==============|
-      update cache                |=========================================|
          DB lookup                |======================|
+      update cache                                       |==================|
         sent reply                                                 X
     ________________________________________________________________________________
     times in ms    0.2            32.4                             100.7
@@ -440,7 +448,7 @@ Sometimes it's useful to create a "child logger" Log::Defer object which is late
 
     ## ...
 
-This technique is used in L<AnyEvent::Task> so that worker processes can log messages using Log::Defer and these are then merged into a client process's existing Log::Defer object.
+This technique is used in L<AnyEvent::Task> so that worker processes can log messages using Log::Defer and these are then merged into a client process's existing logger object.
 
 
 
@@ -449,6 +457,8 @@ This technique is used in L<AnyEvent::Task> so that worker processes can log mes
 L<Log::Defer github repo|https://github.com/hoytech/Log-Defer>
 
 One way to visualize logs created by this module is with the command-line script L<log-defer-viz>
+
+Michael Pucyk has created a Python implementation for the Log::Defer format: L<LogDefer Python module|https://github.com/mikep/LogDefer>
 
 As mentioned above, this module doesn't itself log messages to disk so you still must use some other module to record your log messages. There are many libraries on CPAN that can do this and there should be at least one that fits your requirements. Some examples are: L<Sys::Syslog>, L<Log::Dispatch>, L<Log::Handler>, L<Log::Log4perl>, L<Log::Fast>, L<AnyEvent::Log>.
 
@@ -464,7 +474,7 @@ Doug Hoyte, C<< <doug@hcsw.org> >>
 
 =head1 COPYRIGHT & LICENSE
 
-Copyright 2012-2013 Doug Hoyte.
+Copyright 2012-2014 Doug Hoyte.
 
 This module is licensed under the same terms as perl itself.
 
